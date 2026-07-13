@@ -1,0 +1,10 @@
+{
+  "name": "ipv6-bridge-demo",
+  "version": "1.0.0",
+  "description": "Interactive demo application for IPv6 Bridge",
+  "private": true,
+  "dependencies": {},
+  "scripts": {
+    "start": "node server.js"
+  }
+}

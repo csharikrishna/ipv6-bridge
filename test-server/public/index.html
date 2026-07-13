@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPv6 Bridge - Test Server</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>IPv6 Bridge - Test Server</h1>
+      <p>Testing dual-stack networking with real-time access logs</p>
+    </header>
+
+    <main>
+      <!-- Server Info Section -->
+      <section class="info-section">
+        <h2>Server Information</h2>
+        <div id="serverInfo" class="info-box">
+          <p>Loading server information...</p>
+        </div>
+      </section>
+
+      <!-- Action Buttons -->
+      <section class="actions-section">
+        <h2>Test Actions</h2>
+        <p class="subtitle">Click buttons to record different types of actions in the access log</p>
+        
+        <div class="button-group">
+          <button class="action-btn btn-primary" onclick="performAction('HTTP Request')">
+            🌐 HTTP Request
+          </button>
+          <button class="action-btn btn-secondary" onclick="performAction('Database Query')">
+            🗄️ Database Query
+          </button>
+          <button class="action-btn btn-success" onclick="performAction('File Download')">
+            📥 File Download
+          </button>
+          <button class="action-btn btn-warning" onclick="performAction('Authentication')">
+            🔐 Authentication
+          </button>
+          <button class="action-btn btn-danger" onclick="performAction('Error Test')">
+            ⚠️ Error Test
+          </button>
+          <button class="action-btn btn-info" onclick="clearLogs()">
+            🗑️ Clear Logs
+          </button>
+        </div>
+      </section>
+
+      <!-- Access Logs Section -->
+      <section class="logs-section">
+        <h2>Access Logs</h2>
+        <p class="subtitle">Real-time activity showing IP addresses and actions</p>
+        
+        <div class="logs-container">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>IP Version</th>
+                <th>Client IP</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="logsBody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: #999;">
+                  No logs yet. Click an action button or refresh the page.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Bridge Testing Guide -->
+      <section class="guide-section">
+        <h2>How to Test the Bridge</h2>
+        
+        <div class="guide-content">
+          <h3>1. Start the IPv6 Bridge</h3>
+          <pre><code>cd ipv6-bridge
+npm start</code></pre>
+          
+          <h3>2. Start This Test Server</h3>
+          <pre><code>cd test-server
+node server.js</code></pre>
+          
+          <h3>3. Test IPv4 Directly (No Bridge)</h3>
+          <p>Open browser and access this server directly via IPv4.
+          You should see "IPv4" in the server info.</p>
+          
+          <h3>4. Test IPv6 Directly (No Bridge)</h3>
+          <p>Open browser and access this server directly via IPv6.
+          You should see "IPv6" in the server info.</p>
+          
+          <h3>5. Test Through Bridge (IPv4-only Networks)</h3>
+          <p>Configure your system/browser proxy to <code>localhost:8080</code> (the bridge).
+          Then access the IPv4 endpoint. The bridge will translate your request to IPv6.
+          You should still see "IPv4" in the logs because the test server sees the translated IP.</p>
+          
+          <h3>What You'll Learn</h3>
+          <ul>
+            <li>See which IP version is being used</li>
+            <li>Watch real client IP addresses in logs</li>
+            <li>Understand how DNS64/NAT64 works in practice</li>
+            <li>Test the bridge's proxy functionality</li>
+            <li>Verify IPv4-to-IPv6 translation</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>IPv6 Bridge Test Server | For testing and educational purposes</p>
+    </footer>
+  </div>
+
+  <script>
+    /**
+     * Fetch and display server information
+     */
+    async function updateServerInfo() {
+      try {
+        const response = await fetch('/api/info');
+        const data = await response.json();
+        
+        const infoBox = document.getElementById('serverInfo');
+        infoBox.innerHTML = `
+          <div class="info-grid">
+            <div class="info-item">
+              <label>IP Version:</label>
+              <strong class="ip-version-${data.ipVersion.toLowerCase()}">
+                ${data.ipVersion}
+              </strong>
+            </div>
+            <div class="info-item">
+              <label>Server Port:</label>
+              <code>${data.serverPort}</code>
+            </div>
+            <div class="info-item">
+              <label>Client IP:</label>
+              <code>${data.clientIP}</code>
+            </div>
+            <div class="info-item">
+              <label>Timestamp:</label>
+              <time>${new Date(data.timestamp).toLocaleString()}</time>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Failed to fetch server info:', error);
+        document.getElementById('serverInfo').innerHTML = 
+          '<p style="color: red;">Error loading server information</p>';
+      }
+    }
+
+    /**
+     * Fetch and display access logs
+     */
+    async function updateLogs() {
+      try {
+        const response = await fetch('/api/logs');
+        const data = await response.json();
+        const logsBody = document.getElementById('logsBody');
+        
+        if (data.logs.length === 0) {
+          logsBody.innerHTML = `
+            <tr>
+              <td colspan="4" style="text-align: center; color: #999;">
+                No logs yet. Click an action button or refresh the page.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+        
+        logsBody.innerHTML = data.logs.map(log => `
+          <tr class="log-row log-${log.ipVersion.toLowerCase()}">
+            <td>${new Date(log.timestamp).toLocaleTimeString()}</td>
+            <td class="ip-version-${log.ipVersion.toLowerCase()}">
+              <strong>${log.ipVersion}</strong>
+            </td>
+            <td><code>${log.clientIP}</code></td>
+            <td>${log.action}</td>
+          </tr>
+        `).join('');
+      } catch (error) {
+        console.error('Failed to fetch logs:', error);
+      }
+    }
+
+    /**
+     * Perform an action and record it in logs
+     */
+    async function performAction(actionName) {
+      try {
+        const response = await fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: actionName })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // Highlight the action briefly
+          showNotification(`✓ ${data.message}`, 'success');
+          // Update logs immediately
+          setTimeout(updateLogs, 100);
+        } else {
+          showNotification('✗ Failed to record action', 'error');
+        }
+      } catch (error) {
+        console.error('Failed to perform action:', error);
+        showNotification('✗ Error performing action', 'error');
+      }
+    }
+
+    /**
+     * Clear all logs
+     */
+    function clearLogs() {
+      if (confirm('Are you sure you want to clear all logs?')) {
+        document.getElementById('logsBody').innerHTML = `
+          <tr>
+            <td colspan="4" style="text-align: center; color: #999;">
+              Logs cleared
+            </td>
+          </tr>
+        `;
+        showNotification('✓ Logs cleared', 'success');
+      }
+    }
+
+    /**
+     * Show temporary notification
+     */
+    function showNotification(message, type) {
+      const notification = document.createElement('div');
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: ${type === 'success' ? '#4CAF50' : '#f44336'};
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+      `;
+      notification.textContent = message;
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      updateServerInfo();
+      updateLogs();
+      
+      // Refresh server info every 5 seconds
+      setInterval(updateServerInfo, 5000);
+      
+      // Refresh logs every 2 seconds
+      setInterval(updateLogs, 2000);
+    });
+  </script>
+
+  <style>
+    @keyframes slideIn {
+      from { transform: translateX(400px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(400px); opacity: 0; }
+    }
+  </style>
+</body>
+</html>

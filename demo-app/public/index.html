@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPv6 Bridge - Diagnostics and Testing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --text-primary: #111827;
+      --text-secondary: #6b7280;
+      --text-tertiary: #9ca3af;
+      --accent: #1d4ed8;
+      --accent-hover: #1e40af;
+      --accent-light: #eff6ff;
+      --accent-border: #bfdbfe;
+      --success: #15803d;
+      --success-bg: #f0fdf4;
+      --success-border: #bbf7d0;
+      --error: #b91c1c;
+      --error-bg: #fef2f2;
+      --error-border: #fecaca;
+      --warning: #92400e;
+      --warning-bg: #fffbeb;
+      --warning-border: #fde68a;
+      --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      --radius: 6px;
+      --radius-lg: 10px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      color: var(--text-primary);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Layout ─── */
+
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+
+    .topbar-brand .brand-icon {
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .topbar-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .topbar-meta .version-tag {
+      background: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid var(--accent-border);
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 32px 64px;
+    }
+
+    .page-header {
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .page-header p {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    /* Hide old header/subtext selectors safely */
+    .header { display: none; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+      gap: 20px;
+    }
+
+    /* ─── Card ─── */
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* Clean section icon — just a small colored bar */
+    .card h2::before {
+      content: '';
+      display: block;
+      width: 3px;
+      height: 14px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .card:nth-child(1) h2::before { background: #10b981; }
+    .card:nth-child(2) h2::before { background: var(--accent); }
+    .card:nth-child(3) h2::before { background: #7c3aed; }
+    .card:nth-child(4) h2::before { background: #d97706; }
+    .card:nth-child(5) h2::before { background: #0891b2; }
+    .card.full-width h2::before  { background: #374151; }
+
+    .card h3 {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-top: 20px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .description {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 18px;
+      line-height: 1.6;
+      margin-top: 2px;
+    }
+
+    /* ─── Status badges ─── */
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      margin: 4px 0;
+    }
+
+    .status-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-badge.active {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
+    }
+    .status-badge.active::before { background: #22c55e; }
+
+    .status-badge.inactive {
+      background: var(--error-bg);
+      color: var(--error);
+      border: 1px solid var(--error-border);
+    }
+    .status-badge.inactive::before { background: #ef4444; }
+
+    .status-badge.info {
+      background: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid var(--accent-border);
+    }
+    .status-badge.info::before { background: var(--accent); }
+
+    /* ─── Inputs ─── */
+
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .input-group input {
+      flex: 1;
+      padding: 8px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .input-group input::placeholder { color: var(--text-tertiary); }
+
+    .input-group input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
+    }
+
+    /* ─── Buttons ─── */
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+      font-family: 'Inter', sans-serif;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: var(--shadow-sm);
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      box-shadow: var(--shadow);
+    }
+    .btn-primary:active { transform: scale(0.98); }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow-sm);
+    }
+    .btn-secondary:hover {
+      background: var(--bg);
+      color: var(--text-primary);
+    }
+
+    /* ─── Stats ─── */
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 18px 0;
+    }
+
+    .stat-item {
+      background: var(--bg);
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .stat-label {
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      color: var(--text-primary);
+      font-size: 24px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ─── Log / terminal ─── */
+
+    .log-container {
+      background: #1a1d23;
+      color: #c9d1d9;
+      padding: 16px;
+      border-radius: var(--radius);
+      border: 1px solid #30363d;
+      height: 320px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+      margin-top: 16px;
+    }
+
+    .log-entry {
+      padding: 3px 0;
+      border-left: none;
+    }
+
+    .log-entry.info    { color: #79c0ff; }
+    .log-entry.success { color: #56d364; }
+    .log-entry.warning { color: #e3b341; }
+    .log-entry.error   { color: #f85149; }
+
+    /* ─── Tables ─── */
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 13px;
+    }
+
+    .info-table th {
+      background: var(--bg);
+      padding: 10px 12px;
+      text-align: left;
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .info-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+
+    .info-table tr:last-child td { border-bottom: none; }
+    .info-table tr:hover td { background: var(--bg); }
+
+    /* ─── Tabs ─── */
+
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin: 18px 0 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-button {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab-button.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-button:hover:not(.active) { color: var(--text-primary); }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ─── Result box ─── */
+
+    .result-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-top: 14px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.7;
+    }
+
+    /* ─── Spinner ─── */
+
+    .loading {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid var(--border-strong);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .full-width { grid-column: 1 / -1; }
+
+    /* ─── Scrollbar ─── */
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #58627a; }
+
+    /* ─── Responsive ─── */
+
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; }
+      .container { padding: 20px 16px; }
+      .topbar { padding: 0 16px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-icon">v6</div>
+      IPv6 Bridge
+    </div>
+    <div class="topbar-meta">
+      <span>Diagnostics &amp; Testing</span>
+      <span class="version-tag">v1.0.0</span>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-header">
+      <h1>Network Diagnostics</h1>
+      <p>Monitor bridge status, test DNS resolution, and verify IPv4-to-IPv6 connectivity.</p>
+    </div>
+
+    <div class="grid">
+      <!-- System Status -->
+      <div class="card">
+        <h2>System Status</h2>
+        <p class="description">Real-time system and bridge status information</p>
+
+        <h3>Bridge Connection</h3>
+        <div id="bridgeStatusContainer">
+          <div class="status-badge info">
+            <span class="loading"></span> Checking...
+          </div>
+        </div>
+
+        <h3>Network Interfaces</h3>
+        <div id="networkStatus">
+          <p style="color: var(--text-tertiary); font-size: 13px;">Loading...</p>
+        </div>
+
+        <button class="btn btn-secondary" onclick="refreshDiagnostics()" style="margin-top: 16px;">Refresh Status</button>
+      </div>
+
+      <!-- DNS Resolution -->
+      <div class="card">
+        <h2>DNS Resolution</h2>
+        <p class="description">Test both IPv4 and IPv6 DNS resolution capabilities</p>
+
+        <div class="input-group">
+          <input
+            type="text"
+            id="dnsHost"
+            placeholder="Hostname (e.g. google.com)"
+            value="google.com"
+          >
+          <button class="btn btn-primary" onclick="testDNS()">Resolve</button>
+        </div>
+
+        <div id="dnsResult"></div>
+      </div>
+
+      <!-- Connectivity Testing -->
+      <div class="card">
+        <h2>Connectivity Testing</h2>
+        <p class="description">Test IPv4 and IPv6 connectivity through the bridge</p>
+
+        <div class="input-group">
+          <input
+            type="text"
+            id="testUrl"
+            placeholder="URL (e.g. example.com)"
+            value="example.com"
+          >
+          <button class="btn btn-primary" onclick="testConnectivity()">Test</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat-item">
+            <div class="stat-label">Total Tests</div>
+            <div class="stat-value" id="testCount">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Success Rate</div>
+            <div class="stat-value" id="successRate">0%</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Avg Latency</div>
+            <div class="stat-value" id="avgLatency">0ms</div>
+          </div>
+        </div>
+
+        <button class="btn btn-secondary" onclick="clearResults()">Clear Results</button>
+      </div>
+
+      <!-- System Information -->
+      <div class="card">
+        <h2>System Information</h2>
+        <p class="description">Detailed system and environment information</p>
+
+        <div id="systemInfo">
+          <p style="color: var(--text-tertiary); font-size: 13px;">Click "Load Details" to fetch system information.</p>
+        </div>
+
+        <button class="btn btn-secondary" onclick="loadSystemInfo()" style="margin-top: 16px;">Load Details</button>
+      </div>
+
+      <!-- IPv4 to IPv6 Converter -->
+      <div class="card">
+        <h2>NAT64 Address Converter</h2>
+        <p class="description">Convert an IPv4 address to IPv6 using the well-known NAT64 prefix (64:ff9b::)</p>
+
+        <div class="input-group">
+          <input
+            type="text"
+            id="ipv4Input"
+            placeholder="IPv4 address (e.g. 192.0.2.1)"
+            value="192.0.2.1"
+          >
+          <button class="btn btn-primary" onclick="convertIPv4()">Convert</button>
+        </div>
+
+        <div id="conversionResult"></div>
+      </div>
+
+      <!-- Activity Log -->
+      <div class="card full-width">
+        <h2>Activity Log</h2>
+        <p class="description">Real-time log of all network operations and system events</p>
+
+        <div class="tabs">
+          <button class="tab-button active" onclick="switchTab('log-activity')">Activity</button>
+          <button class="tab-button" onclick="switchTab('log-details')">Test Details</button>
+        </div>
+
+        <div id="log-activity" class="tab-content active">
+          <div class="log-container" id="logContainer"></div>
+        </div>
+
+        <div id="log-details" class="tab-content">
+          <div class="result-box" id="detailsBox" style="color: var(--text-tertiary);">No test details yet. Run a test to see results here.</div>
+        </div>
+
+        <button class="btn btn-secondary" onclick="clearLogs()" style="margin-top: 16px;">Clear Logs</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,151 @@
+# IPv6 Bridge
+
+> Local DNS64/NAT64 proxy for IPv6-only networks — access IPv4 sites seamlessly.
+
+IPv4 addresses are exhausted globally. Many ISPs now deploy IPv6-only networks, but millions of websites still only support IPv4. IPv6 Bridge solves this by running a local proxy that translates traffic using DNS64 and NAT64 standards.
+
+## Features
+
+- **Zero dependencies** — pure Node.js, nothing to install
+- **Auto-detection** — starts only when needed (IPv6-only network with broken NAT64)
+- **HTTP & HTTPS** — full proxy support including CONNECT tunneling
+- **RFC compliant** — implements RFC 6052 (DNS64) and RFC 6146 (NAT64)
+- **Cross-platform** — works on Windows, macOS, and Linux
+- **Programmatic API** — use from your Node.js app or the CLI
+
+## Quick Start
+
+### CLI
+
+```bash
+npx ipv6-bridge start
+```
+
+The bridge auto-detects whether it's needed. To force it:
+
+```bash
+FORCE_BRIDGE=1 npx ipv6-bridge start
+```
+
+### Programmatic
+
+```javascript
+const { start, stop } = require('ipv6-bridge');
+
+const server = await start(8080);
+// → returns the server, or null if bridge isn't needed
+
+// Later:
+await stop();
+```
+
+### Install as a Dependency
+
+```bash
+npm install ipv6-bridge
+```
+
+## How It Works
+
+**The "Language Translator" Analogy**
+> Imagine you only speak English (IPv6), but you need to call a business in Japan where they only speak Japanese (IPv4). If you call them directly, you won't understand each other.
+> 
+> This project acts like a live, bilingual phone operator sitting right next to you. When you try to make the call, the software intercepts it, looks up the Japanese translation for the phone number (**DNS64**), and then acts as a middleman translating your English sentences into Japanese and back again in real-time (**NAT64 proxy**). The result is that you have a seamless conversation without even realizing a translation is happening.
+
+### Technical Flow
+
+```text
+Your App → HTTP request → IPv6 Bridge (localhost:8080)
+                               │
+                          DNS64 resolution
+                          example.com → 142.251.32.14 → 64:ff9b::8efb:200e
+                               │
+                          Outbound via IPv6
+                               │
+                          ISP NAT64 Gateway
+                               │
+                          IPv4 Internet (google.com)
+```
+
+1. **Detection** — checks if you're on an IPv6-only network
+2. **DNS64** — resolves hostnames; if only an IPv4 address exists, synthesizes an IPv6 address using the NAT64 prefix (`64:ff9b::`)
+3. **Proxy** — routes HTTP/HTTPS through IPv6; the ISP's NAT64 gateway translates to IPv4
+4. **Response** — data flows back through the same path, transparently
+
+For a deep dive, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `IPV6_BRIDGE_PORT` | `8080` | Proxy listen port |
+| `FORCE_BRIDGE` | _(unset)_ | Start even if not needed |
+| `NAT64_PREFIX` | `64:ff9b::` | Custom NAT64 prefix |
+
+## API
+
+### `start(port?): Promise<http.Server | null>`
+
+Starts the proxy. Returns the server instance, or `null` if the bridge isn't needed.
+
+### `stop(): Promise<void>`
+
+Stops the running bridge.
+
+See [docs/API.md](docs/API.md) for the full API reference.
+
+## Testing
+
+```bash
+npm test
+```
+
+### Demo Application
+
+An interactive diagnostics tool:
+
+```bash
+cd demo-app && npm start
+# Open http://localhost:3000
+```
+
+### Dual-Stack Test Server
+
+Test IPv4 and IPv6 endpoints with real-time logging:
+
+```bash
+cd test-server && node server.js
+```
+
+See [test-server/README.md](test-server/README.md) for details.
+
+## Project Structure
+
+```
+src/
+  cli.js        CLI entry point
+  config.js     Configuration constants
+  detect.js     Network detection
+  dns64.js      DNS64 resolver
+  index.js      Public API (start/stop)
+  proxy.js      HTTP/HTTPS proxy
+tests/          Test suite
+demo-app/       Interactive demo
+test-server/    Dual-stack test server
+examples/       Usage examples
+docs/           Extended documentation
+```
+
+## Standards
+
+- [RFC 6052](https://tools.ietf.org/html/rfc6052) — IPv6 Addressing of IPv4/IPv6 Translators
+- [RFC 6146](https://tools.ietf.org/html/rfc6146) — Stateful NAT64
+- [RFC 6147](https://tools.ietf.org/html/rfc6147) — DNS64
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)
