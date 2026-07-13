@@ -1,5 +1,9 @@
 # IPv6 Bridge
 
+[![npm version](https://img.shields.io/npm/v/ipv6-bridge.svg)](https://www.npmjs.com/package/ipv6-bridge)
+[![npm downloads](https://img.shields.io/npm/dm/ipv6-bridge.svg)](https://www.npmjs.com/package/ipv6-bridge)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > Local DNS64/NAT64 proxy for IPv6-only networks — access IPv4 sites seamlessly.
 
 IPv4 addresses are exhausted globally. Many ISPs now deploy IPv6-only networks, but millions of websites still only support IPv4. IPv6 Bridge solves this by running a local proxy that translates traffic using DNS64 and NAT64 standards.
@@ -42,7 +46,7 @@ await stop();
 ### Install as a Dependency
 
 ```bash
-npm install ipv6-bridge
+npm i ipv6-bridge
 ```
 
 ## How It Works
