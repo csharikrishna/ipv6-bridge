@@ -156,14 +156,9 @@ This project is an **application-layer HTTP proxy**, not a packet-level NAT64 im
 
 ## Roadmap
 
-Planned improvements for future releases:
+We have an extensive roadmap planned for future releases, including DNS caching, SOCKS5 support, and Happy Eyeballs (RFC 8305). 
 
-- **DNS cache with TTL** — avoid redundant DNS lookups
-- **Connection pooling / Keep-Alive** — reuse TCP connections for performance
-- **Happy Eyeballs (RFC 8305)** — race IPv4 and IPv6 simultaneously
-- **Improved network detection** — inspect routing tables and OS interfaces
-- **SOCKS5 support** — proxy non-HTTP protocols
-- **Metrics endpoint** — expose `/metrics` for production observability
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full breakdown of planned features and protocol expansions.
 
 ## Standards
 
