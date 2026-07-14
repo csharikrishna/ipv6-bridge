@@ -8,14 +8,15 @@
 
 IPv4 addresses are exhausted globally. Many ISPs now deploy IPv6-only networks, but millions of websites still only support IPv4. IPv6 Bridge solves this by running a local proxy that translates traffic using DNS64 and NAT64 standards.
 
-## Features
+## Why IPv6 Bridge? (The Advantage)
 
-- **Zero dependencies** — pure Node.js, nothing to install
-- **Auto-detection** — starts only when needed (IPv6-only network with broken NAT64)
-- **HTTP & HTTPS** — full proxy support including CONNECT tunneling
-- **RFC compliant** — implements RFC 6052 (DNS64) and RFC 6146 (NAT64)
-- **Cross-platform** — works on Windows, macOS, and Linux
-- **Programmatic API** — use from your Node.js app or the CLI
+While there are other NAT64/DNS64 bridges out there (like Tayga or Jool), **IPv6 Bridge** occupies a very specific, developer-friendly niche:
+
+1. **100% User-Space & Zero Dependencies**: Most IPv6 bridges require installing complex C++ binaries, compiling Linux kernel modules, or configuring OS-level `TUN/TAP` interfaces. This project runs entirely in user-space using pure Node.js standard libraries. Just run it.
+2. **Intelligent Auto-Detection**: It probes your network to figure out if you are actually stuck on a broken IPv6-only network, and only activates if strictly necessary, preventing it from breaking standard IPv4-enabled environments.
+3. **Programmatic API**: Designed for software engineers, it exports a clean `start()` and `stop()` API. You can import this package directly into your automated testing pipelines (like Cypress or Jest) to simulate IPv6 environments during CI/CD builds.
+4. **Premium Diagnostic Dashboard**: Ships with a built-in interactive dashboard to test DNS64 and NAT64 connectivity visually, making network debugging incredibly approachable.
+5. **RFC Compliant**: Implements RFC 6052 (DNS64) and RFC 6146 (NAT64).
 
 ## Quick Start
 
