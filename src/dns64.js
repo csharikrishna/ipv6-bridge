@@ -7,7 +7,8 @@
  */
 
 const dns = require('dns').promises;
-const { NAT64_PREFIX } = require('./config');
+const net = require('net');
+const { NAT64_PREFIX, DNS_TIMEOUT } = require('./config');
 
 /**
  * Detect the IP version of an address string.
@@ -16,22 +17,13 @@ const { NAT64_PREFIX } = require('./config');
  * @returns {'ipv4'|'ipv6'|'hostname'|null} Address type
  */
 function detectIPVersion(addr) {
-  if (!addr) return null;
+  if (!addr || typeof addr !== 'string') return null;
 
-  // IPv4: dotted decimal (0-255 per octet)
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(addr)) {
-    const parts = addr.split('.').map(Number);
-    if (parts.every((p) => p >= 0 && p <= 255)) {
-      return 'ipv4';
-    }
-  }
+  const result = net.isIP(addr);
+  if (result === 4) return 'ipv4';
+  if (result === 6) return 'ipv6';
 
-  // IPv6: colon-delimited hex (includes :: shorthand)
-  if (/^[a-f0-9:]+$/i.test(addr) && addr.includes(':')) {
-    return 'ipv6';
-  }
-
-  // Everything else is a hostname
+  // net.isIP returns 0 for non-IP strings (i.e. hostnames)
   return 'hostname';
 }
 
@@ -74,7 +66,7 @@ async function resolveIPv6(hostname) {
   try {
     const resolver = dns.resolve6(hostname);
     const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('DNS timeout')), 5000)
+      setTimeout(() => reject(new Error('DNS timeout')), DNS_TIMEOUT)
     );
     return await Promise.race([resolver, timeout]);
   } catch {

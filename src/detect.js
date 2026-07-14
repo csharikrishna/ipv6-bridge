@@ -9,7 +9,7 @@
 
 const http = require('http');
 const { resolveIPv6 } = require('./dns64');
-const { IPV6_GOOGLE, IPV4_GOOGLE } = require('./config');
+const { IPV6_GOOGLE, IPV4_GOOGLE, DNS_TIMEOUT } = require('./config');
 
 /**
  * Test if the network has IPv6 connectivity.
@@ -26,7 +26,7 @@ async function hasIPv6() {
       resolve(res.statusCode === 200);
     });
     req.on('error', () => resolve(false));
-    req.setTimeout(5000, () => {
+    req.setTimeout(DNS_TIMEOUT, () => {
       req.destroy();
       resolve(false);
     });
@@ -64,7 +64,7 @@ async function needsBridge() {
         resolve(res.statusCode !== 200);
       });
       req.on('error', () => resolve(true));
-      req.setTimeout(5000, () => {
+      req.setTimeout(DNS_TIMEOUT, () => {
         req.destroy();
         resolve(true);
       });

@@ -28,6 +28,18 @@ module.exports = {
   DEFAULT_PORT: 8080,
 
   /**
+   * DNS resolution timeout in milliseconds.
+   * Override with the IPV6_DNS_TIMEOUT environment variable.
+   */
+  DNS_TIMEOUT: parseInt(process.env.IPV6_DNS_TIMEOUT, 10) || 5000,
+
+  /**
+   * Proxy connection timeout in milliseconds.
+   * Override with the IPV6_CONN_TIMEOUT environment variable.
+   */
+  CONNECTION_TIMEOUT: parseInt(process.env.IPV6_CONN_TIMEOUT, 10) || 10000,
+
+  /**
    * Test URL for IPv6 connectivity detection.
    * Must be a server with IPv6 support.
    */

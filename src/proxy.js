@@ -1,19 +1,25 @@
 /**
  * IPv6 Bridge - HTTP/HTTPS Proxy
  *
- * Implements application-level NAT64 (RFC 6146) by intercepting HTTP/HTTPS
- * requests, resolving hostnames via DNS64, and routing through IPv6.
+ * DNS64-aware application-layer proxy that intercepts HTTP/HTTPS requests,
+ * resolves hostnames via DNS64 synthesis, and routes traffic through IPv6.
+ * Relies on the ISP's upstream NAT64 gateway for actual IPv4 translation.
  *
  * @module proxy
  */
 
 const http = require('http');
 const net = require('net');
-const { resolveIPv6, detectIPVersion } = require('./dns64');
-const { DEFAULT_PORT } = require('./config');
+const { resolveIPv6, ipv4ToIPv6, detectIPVersion } = require('./dns64');
+const { DEFAULT_PORT, CONNECTION_TIMEOUT } = require('./config');
+const log = require('./logger');
 
 /**
  * Resolve a target host to an IPv6 address if needed.
+ *
+ * - IPv6 addresses pass through directly.
+ * - IPv4 literals are synthesized using the NAT64 prefix (no DNS lookup).
+ * - Hostnames go through DNS64 resolution.
  *
  * @param {string} hostname - The hostname or IP to resolve
  * @returns {Promise<{host: string, family: number}>} Resolved host and IP family
@@ -25,12 +31,25 @@ async function resolveTarget(hostname) {
     return { host: hostname, family: 6 };
   }
 
-  // For both IPv4 addresses and hostnames, use DNS64 resolution
-  // to get an IPv6 address with the NAT64 prefix.
+  // IPv4 literal: synthesize directly, no DNS needed
+  if (ipVersion === 'ipv4') {
+    try {
+      const synthesized = ipv4ToIPv6(hostname);
+      log.debug(`Synthesized ${hostname} → ${synthesized}`);
+      return { host: synthesized, family: 6 };
+    } catch {
+      return { host: hostname, family: 4 };
+    }
+  }
+
+  // Hostname: resolve via DNS64
   try {
     const ipv6Addresses = await resolveIPv6(hostname);
     if (ipv6Addresses && ipv6Addresses.length > 0) {
-      return { host: ipv6Addresses[0], family: 6 };
+      // Select a random address for basic load distribution (RFC 3484)
+      const selected = ipv6Addresses[Math.floor(Math.random() * ipv6Addresses.length)];
+      log.debug(`Resolved ${hostname} → ${selected} (${ipv6Addresses.length} records)`);
+      return { host: selected, family: 6 };
     }
   } catch {
     // Fall through to direct connection
@@ -40,7 +59,7 @@ async function resolveTarget(hostname) {
 }
 
 /**
- * Create an HTTP/HTTPS proxy server with NAT64 support.
+ * Create an HTTP/HTTPS proxy server with DNS64 support.
  *
  * @param {number} port - Port to listen on (default: 8080)
  * @returns {Promise<http.Server>} Resolves with the server once it's listening
@@ -60,7 +79,7 @@ function createProxy(port = DEFAULT_PORT) {
           method: req.method,
           headers: req.headers,
           family: ipFamily,
-          timeout: 10000,
+          timeout: CONNECTION_TIMEOUT,
         };
 
         const proxy = http.request(options, (proxyRes) => {
@@ -73,7 +92,8 @@ function createProxy(port = DEFAULT_PORT) {
           });
         });
 
-        proxy.on('error', () => {
+        proxy.on('error', (err) => {
+          log.warn(`Proxy error for ${hostname}: ${err.message}`);
           if (!res.headersSent) {
             res.writeHead(502).end('Bad Gateway');
           }
@@ -88,7 +108,8 @@ function createProxy(port = DEFAULT_PORT) {
 
         req.pipe(proxy);
         req.on('error', () => proxy.destroy());
-      } catch {
+      } catch (err) {
+        log.error(`Request handler error: ${err.message}`);
         if (!res.headersSent) {
           res.writeHead(500).end('Internal Server Error');
         }
@@ -119,7 +140,7 @@ function createProxy(port = DEFAULT_PORT) {
 
         conn.on('error', () => socket.end());
         socket.on('error', () => conn.end());
-        conn.setTimeout(10000, () => {
+        conn.setTimeout(CONNECTION_TIMEOUT, () => {
           conn.destroy();
           socket.end();
         });
@@ -139,3 +160,4 @@ function createProxy(port = DEFAULT_PORT) {
 }
 
 module.exports = { createProxy };
+
