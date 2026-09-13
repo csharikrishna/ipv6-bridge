@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-09-13
+
+### Added
+
+- **Embedded API.** The bridge can now be used from inside an application, with
+  no proxy and no system configuration. Previously the only way to use it was to
+  run a proxy and point clients at it, which is impractical for a deployed
+  service.
+  - `createAgent()` and `createHttpsAgent()` — drop-in agents for `http`/`https`
+    and any client that accepts one (axios, got, node-fetch). Connections try
+    native IPv6, then NAT64 synthesis, then direct IPv4, with keep-alive pooling.
+    TLS certificates are validated against the requested hostname rather than
+    the synthesized address the connection travelled over.
+  - `createAgents()` — both protocols at once.
+  - `createLookup()` — a `dns.lookup`-compatible function for anything taking a
+    `lookup` option, including `net.connect` and many database drivers.
+  - `createConnector()` — an undici connector, so Node's global `fetch` can use
+    the bridge. undici remains outside this package's dependencies.
+  - `resolve()` — report which route would be taken, without connecting.
+  - `getStats()` — the data behind `/status`, available to embedded users so a
+    service can alert when translation stops happening.
+- A test fixture certificate covering `localhost` and `127.0.0.1`, so TLS
+  behaviour is verified locally without network access.
+
 ## [2.0.0] - 2026-09-13
 
 A correctness, security and production-readiness release. An audit found that

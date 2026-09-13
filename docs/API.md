@@ -2,7 +2,119 @@
 
 Complete API documentation for IPv6 Bridge.
 
-## Programmatic API
+## Embedded API
+
+These let an application use DNS64/NAT64 translation directly, with no proxy
+and no system configuration. Every outbound connection tries native IPv6 first,
+then a NAT64-synthesized address, then direct IPv4.
+
+None of this can create connectivity the host does not have.
+
+### `createAgent(options?)`
+
+An `http.Agent` that resolves through DNS64, fails over across candidate
+addresses, and pools sockets keyed by the original hostname.
+
+```javascript
+const { createAgent } = require('ipv6-bridge');
+http.get('http://example.com', { agent: createAgent() }, handler);
+```
+
+**Parameters:** any `http.Agent` option. Defaults: `keepAlive: true`,
+`keepAliveMsecs` from `IPV6_KEEP_ALIVE_MS`, `maxSockets` from
+`IPV6_MAX_SOCKETS_PER_HOST`.
+
+**Returns:** `http.Agent`
+
+### `createHttpsAgent(options?)`
+
+The same, performing the TLS handshake over the bridged socket.
+
+```javascript
+const { createHttpsAgent } = require('ipv6-bridge');
+https.get('https://example.com', { agent: createHttpsAgent() }, handler);
+```
+
+The certificate is validated against the **requested hostname**, never the
+synthesized address the connection travelled over, so certificate verification
+works normally and must not be disabled.
+
+**Returns:** `https.Agent`
+
+### `createAgents(options?)`
+
+Both at once, for clients that take a pair.
+
+**Returns:** `{ http: http.Agent, https: https.Agent }`
+
+```javascript
+const agents = createAgents();
+axios.create({ httpAgent: agents.http, httpsAgent: agents.https });
+```
+
+### `createLookup()`
+
+A `dns.lookup`-compatible function applying DNS64 synthesis. Usable anywhere a
+`lookup` option is accepted.
+
+```javascript
+net.connect({ host: 'db.example', port: 5432, lookup: createLookup() });
+```
+
+Supports the `all` and `family` options. Lighter-touch than an agent, but it
+only changes resolution — no failover or pooling.
+
+**Returns:** `(hostname, options, callback) => void`
+
+### `createConnector()`
+
+A connector for undici, and therefore Node's global `fetch`. undici is not a
+dependency; this is for projects that already use it.
+
+```javascript
+const { Agent, setGlobalDispatcher } = require('undici');
+setGlobalDispatcher(new Agent({ connect: createConnector() }));
+```
+
+**Returns:** `(options, callback) => void`
+
+### `resolve(hostname)`
+
+Resolve the way the bridge would, without connecting. Useful for logging and
+assertions.
+
+```javascript
+await resolve('8.8.8.8');
+// → [ { host: '64:ff9b::808:808', family: 6, mode: 'nat64' },
+//     { host: '8.8.8.8', family: 4, mode: 'direct-ipv4' } ]
+```
+
+**Returns:** `Promise<Array<{host: string, family: number, mode: string}>>`
+
+### `getStats()`
+
+A snapshot of counters, routing modes, DNS cache statistics and the active
+prefix — the same data the proxy serves at `/status`, available to embedded
+users.
+
+```javascript
+const stats = getStats();
+stats.translationRate;           // 0 means nothing is being translated
+stats.routes.directIpv4Fallback; // connections that could not be translated
+```
+
+**Returns:** `object`
+
+### `discoverPrefix()`
+
+Run RFC 7050 discovery and report the network's NAT64 prefix, without changing
+configuration.
+
+**Returns:** `Promise<{prefix, length, bytes, source}|null>`
+
+---
+
+## Proxy API
 
 ### `start(port?, options?)`
 

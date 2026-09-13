@@ -16,6 +16,10 @@ const { createProxy } = require('./proxy');
 const { createSocksServer } = require('./socks5');
 const { needsBridge } = require('./detect');
 const { discoverAndApply } = require('./discovery');
+const agent = require('./agent');
+const { discoverPrefix } = require('./discovery');
+const { dnsCache } = require('./dns64');
+const stats = require('./stats');
 const config = require('./config');
 const log = require('./logger');
 
@@ -118,4 +122,37 @@ async function stop() {
   await Promise.all(closers);
 }
 
-module.exports = { start, stop };
+/**
+ * Snapshot what the bridge has done so far.
+ *
+ * Applications embedding the agents can use this to confirm translation is
+ * actually happening rather than silently falling back.
+ *
+ * @returns {object} Counters, routing modes, DNS cache stats and active prefix
+ */
+function getStats() {
+  const prefix = config.getPrefix();
+  return stats.snapshot({
+    dnsCache: dnsCache.stats(),
+    nat64Prefix: `${prefix.prefix}/${prefix.length}`,
+  });
+}
+
+module.exports = {
+  // Proxy lifecycle
+  start,
+  stop,
+
+  // Embeddable primitives — use the bridge from inside an application,
+  // with no proxy and no system configuration.
+  createAgent: agent.createAgent,
+  createHttpsAgent: agent.createHttpsAgent,
+  createAgents: agent.createAgents,
+  createLookup: agent.createLookup,
+  createConnector: agent.createConnector,
+
+  // Introspection
+  resolve: agent.resolve,
+  getStats,
+  discoverPrefix,
+};

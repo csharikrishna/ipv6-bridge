@@ -369,6 +369,124 @@ is passing your traffic through without doing anything. Run `doctor`.
 
 ## 7. Using it from Node.js
 
+There are two ways to use this from an application. Pick based on what you're
+trying to do.
+
+| | Embedded | Proxy |
+|---|---|---|
+| **Use when** | Your own app needs to reach IPv4-only hosts | Other programs on the machine need it |
+| **Covers** | Only your app's outbound connections | Anything configured to use the proxy |
+| **Setup** | Pass an agent; no system config | Run a server, point clients at it |
+| **Production** | Recommended for services | Recommended for developer machines |
+
+### Embedded: use the bridge inside your app
+
+No proxy, no ports, no system configuration. Your app's outbound connections
+gain DNS64 translation, address-family failover and connection pooling.
+
+```javascript
+const https = require('https');
+const { createHttpsAgent } = require('ipv6-bridge');
+
+const agent = createHttpsAgent();
+
+https.get('https://some-ipv4-only-api.example', { agent }, (res) => {
+  console.log(res.statusCode);
+});
+```
+
+Each connection tries native IPv6 first, then a NAT64-synthesized address, then
+direct IPv4 — so it works on dual-stack, IPv6-only and IPv4-only hosts alike.
+
+**TLS is validated against the hostname you requested**, not the synthesized
+address the connection travelled over. You never need to disable certificate
+checking to make this work; if you find yourself wanting to, something is wrong.
+
+#### With popular HTTP clients
+
+```javascript
+const { createAgents } = require('ipv6-bridge');
+const agents = createAgents();
+
+// axios
+const axios = require('axios');
+const client = axios.create({
+  httpAgent: agents.http,
+  httpsAgent: agents.https,
+});
+
+// got
+const got = require('got');
+await got('https://example.com', { agent: { http: agents.http, https: agents.https } });
+
+// node-fetch
+const fetch = require('node-fetch');
+await fetch('https://example.com', { agent: agents.https });
+```
+
+#### With Node's global `fetch` (undici)
+
+Node's `fetch` is powered by undici, which isn't a dependency of this package.
+If your project already has it:
+
+```javascript
+const { Agent, setGlobalDispatcher } = require('undici');
+const { createConnector } = require('ipv6-bridge');
+
+setGlobalDispatcher(new Agent({ connect: createConnector() }));
+
+// Every fetch() in the process now goes through the bridge.
+await fetch('https://some-ipv4-only-api.example');
+```
+
+#### As a drop-in `lookup` function
+
+Anything that accepts a `lookup` option — `net.connect`, `http.request`, many
+database drivers — can use the bridge without an agent:
+
+```javascript
+const net = require('net');
+const { createLookup } = require('ipv6-bridge');
+
+const socket = net.connect({
+  host: 'some-ipv4-only-host.example',
+  port: 5432,
+  lookup: createLookup(),
+});
+```
+
+This is the lightest-touch integration, but it only changes address resolution —
+you don't get the failover or pooling the agents provide.
+
+#### Confirming it is doing something
+
+```javascript
+const { resolve, getStats } = require('ipv6-bridge');
+
+// What route would be used, without connecting
+await resolve('8.8.8.8');
+// → [ { host: '64:ff9b::808:808', family: 6, mode: 'nat64' },
+//     { host: '8.8.8.8', family: 4, mode: 'direct-ipv4' } ]
+
+// What actually happened
+const stats = getStats();
+stats.routes.nat64;                // connections that were translated
+stats.routes.directIpv4Fallback;   // connections that silently could not be
+stats.translationRate;             // 0 means nothing is being translated
+```
+
+Expose `getStats()` on an internal health endpoint and alert if
+`translationRate` sits at `0` while `directIpv4Fallback` climbs.
+
+#### What this does not do
+
+It cannot create connectivity the host lacks. On a host with no IPv6 address
+and no route, nothing here produces IPv6 reachability; on an IPv6-only host with
+no upstream NAT64 gateway, IPv4 destinations stay unreachable. It makes your app
+reach everything the host *can* reach, regardless of address family.
+
+### Proxy: run a server for other programs
+
 ```javascript
 const { start, stop } = require('ipv6-bridge');
 

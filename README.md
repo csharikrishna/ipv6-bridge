@@ -72,7 +72,36 @@ For browsers, use the auto-config URL `http://127.0.0.1:8080/proxy.pac`. See the
 npx ipv6-bridge status
 ```
 
-### Programmatic
+### Use it inside your application (no proxy, no system config)
+
+If you don't want to run a proxy at all, drop the bridge straight into your app's
+outbound connections:
+
+```bash
+npm i ipv6-bridge
+```
+
+```javascript
+const { createHttpsAgent } = require('ipv6-bridge');
+const agent = createHttpsAgent();
+
+// Connects over native IPv6 when possible, through NAT64 when translation is
+// needed, and over IPv4 as a last resort — without any system configuration.
+https.get('https://some-ipv4-only-api.example', { agent }, handleResponse);
+```
+
+Works with anything that accepts an agent (axios, got, node-fetch) or a `lookup`
+function (`net.connect`, `http.request`). For Node's global `fetch`, use
+`createConnector()` with undici.
+
+```javascript
+const { getStats } = require('ipv6-bridge');
+getStats().translationRate; // did translation actually happen?
+```
+
+See [Using it from Node.js](docs/GUIDE.md#7-using-it-from-nodejs) for the full set.
+
+### Run it as a proxy
 
 ```javascript
 const { start, stop } = require('ipv6-bridge');
@@ -80,14 +109,7 @@ const { start, stop } = require('ipv6-bridge');
 const server = await start(8080);
 // → returns the server, or null if bridge isn't needed
 
-// Later:
 await stop();
-```
-
-### Install as a Dependency
-
-```bash
-npm i ipv6-bridge
 ```
 
 ## How It Works
