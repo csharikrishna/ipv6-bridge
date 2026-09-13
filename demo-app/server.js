@@ -1,10 +1,16 @@
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const dns = require('dns').promises;
+const { resolveHost, detectIPVersion } = require('../src/dns64');
 
-const PORT = 3000;
+const PORT = Number(process.env.DEMO_PORT) || 3000;
+const HOST = process.env.DEMO_HOST || '127.0.0.1';
+const BRIDGE_PORT = Number(process.env.IPV6_BRIDGE_PORT) || 8080;
+const BRIDGE_HOST = process.env.IPV6_BRIDGE_HOST || '127.0.0.1';
+const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -62,35 +68,29 @@ const server = http.createServer((req, res) => {
   }
 
   // API: Bridge status check
+  //
+  // Checks whether the bridge is actually accepting connections on its port.
+  // Probing a remote site instead would report "running" whenever the internet
+  // works, regardless of whether the bridge is up.
   if (req.url.startsWith('/api/bridge-status')) {
-    const checkBridge = async () => {
-      try {
-        const https = require('https');
-        return new Promise((resolve) => {
-          const request = https.request('https://ipv6.google.com', {
-            method: 'HEAD',
-            timeout: 3000
-          }, (res) => {
-            resolve({ connected: true, statusCode: res.statusCode });
-          });
-          
-          request.on('error', () => resolve({ connected: false }));
-          request.on('timeout', () => {
-            request.destroy();
-            resolve({ connected: false });
-          });
-          request.end();
-        });
-      } catch (error) {
-        return { connected: false, error: error.message };
-      }
-    };
+    const isBridgeListening = () => new Promise((resolve) => {
+      const socket = net.connect({ port: BRIDGE_PORT, host: BRIDGE_HOST }, () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.on('error', () => resolve(false));
+      socket.setTimeout(2000, () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
 
-    checkBridge().then(bridgeStatus => {
+    isBridgeListening().then((bridgeRunning) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        bridgePort: 8080,
-        bridgeRunning: bridgeStatus.connected,
+        bridgeHost: BRIDGE_HOST,
+        bridgePort: BRIDGE_PORT,
+        bridgeRunning,
         ipv6Available: getNetworkInterfaces().ipv6.length > 0
       }));
     });
@@ -99,44 +99,54 @@ const server = http.createServer((req, res) => {
 
   // API: DNS resolution test (IPv4 and IPv6)
   if (req.url.startsWith('/api/dns-resolve')) {
-    let testHost = req.headers['x-test-host'] || 'google.com';
-    
-    // Strip port number if present (e.g., "127.0.0.1:9627" -> "127.0.0.1")
-    testHost = testHost.split(':')[0];
-    
-    // Strip protocol if present (e.g., "http://example.com" -> "example.com")
-    testHost = testHost.replace(/^(https?:\/\/)/, '');
-    testHost = testHost.replace(/\/$/, ''); // Remove trailing slash
-    
-    // Check if input is already an IP address
-    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-    const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
-    
-    const isIPv4 = ipv4Regex.test(testHost);
-    const isIPv6 = ipv6Regex.test(testHost);
-    
-    if (isIPv4 || isIPv6) {
-      // If it's already an IP address, just return it without DNS lookup
+    const query = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams;
+    let testHost = query.get('host') || req.headers['x-test-host'] || 'google.com';
+
+    // Strip protocol and any trailing path
+    testHost = testHost.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+
+    // Strip a trailing :port, but leave bare IPv6 literals intact (they are
+    // full of colons) and unwrap bracketed ones.
+    const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(testHost);
+    if (bracketed) {
+      testHost = bracketed[1];
+    } else if (detectIPVersion(testHost) !== 'ipv6') {
+      testHost = testHost.replace(/:\d+$/, '');
+    }
+
+    const ipVersion = detectIPVersion(testHost);
+
+    if (ipVersion === 'ipv4' || ipVersion === 'ipv6') {
+      // Already an IP address, no DNS lookup needed
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         host: testHost,
-        ipv4: isIPv4 ? [testHost] : { error: 'Not an IPv4 address' },
-        ipv6: isIPv6 ? [testHost] : { error: 'Not an IPv6 address' },
+        ipv4: ipVersion === 'ipv4' ? [testHost] : { error: 'Not an IPv4 address' },
+        ipv6: ipVersion === 'ipv6' ? [testHost] : { error: 'Not an IPv6 address' },
         isDirectAddress: true,
         timestamp: new Date().toISOString()
       }));
       return;
     }
-    
+
+    // dns.lookup goes through the system resolver, so results match what the
+    // bridge itself will see. dns.resolve* is reported alongside it because a
+    // mismatch between the two is a common cause of bridge failures.
     Promise.all([
-      dns.resolve4(testHost).catch(e => ({ error: e.message })),
-      dns.resolve6(testHost).catch(e => ({ error: e.message }))
-    ]).then(([ipv4, ipv6]) => {
+      dns.lookup(testHost, { all: true, family: 4 }).then(r => r.map(a => a.address))
+        .catch(e => ({ error: e.message })),
+      dns.lookup(testHost, { all: true, family: 6 }).then(r => r.map(a => a.address))
+        .catch(e => ({ error: e.message })),
+      resolveHost(testHost).catch(e => ({ error: e.message })),
+    ]).then(([ipv4, ipv6, bridgeResult]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         host: testHost,
-        ipv4: Array.isArray(ipv4) ? ipv4 : ipv4,
-        ipv6: Array.isArray(ipv6) ? ipv6 : ipv6,
+        ipv4,
+        ipv6,
+        bridgeWouldUse: bridgeResult.error
+          ? { error: bridgeResult.error }
+          : { addresses: bridgeResult.addresses, mode: bridgeResult.mode },
         timestamp: new Date().toISOString()
       }));
     });
@@ -156,12 +166,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Serve static files
-  let filePath = req.url === '/' ? '/public/index.html' : req.url;
-  if (!filePath.startsWith('/public/') && req.url !== '/') {
-    filePath = '/public' + req.url;
+  // Serve static files, confined to the public directory.
+  // path.join resolves "..", so containment must be checked after resolving.
+  const requestPath = decodeURIComponent(req.url.split('?')[0]);
+  const filePath = path.resolve(PUBLIC_DIR, '.' + (requestPath === '/' ? '/index.html' : requestPath));
+
+  if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('403 Forbidden');
+    return;
   }
-  filePath = path.join(__dirname, filePath);
+
   const extname = path.extname(filePath);
   const contentType = mimeTypes[extname] || 'application/octet-stream';
 
@@ -181,12 +196,13 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`\nIPv6 Bridge Demo Application`);
   console.log(`============================\n`);
-  console.log(`Server running at: http://localhost:${PORT}`);
+  console.log(`Server running at: http://${HOST}:${PORT}`);
+  console.log(`Watching for the bridge at: ${BRIDGE_HOST}:${BRIDGE_PORT}`);
   console.log(`\nSetup Instructions:`);
   console.log(`1. Start the IPv6 Bridge: npx ipv6-bridge start`);
-  console.log(`2. Open http://localhost:${PORT} in your browser`);
+  console.log(`2. Open http://${HOST}:${PORT} in your browser`);
   console.log(`3. Use the demo to test bidirectional bridging\n`);
 });

@@ -1,62 +1,121 @@
 /**
  * IPv6 Bridge - Main Entry Point
  *
- * Coordinates bridge startup and shutdown. The bridge consists of:
+ * Coordinates bridge startup and shutdown:
  *
  * 1. Detection (detect.js): Checks if the bridge is needed.
- * 2. DNS64 Resolver (dns64.js): Synthesizes IPv6 addresses from IPv4.
- * 3. Proxy (proxy.js): HTTP/HTTPS proxy with NAT64 routing.
+ * 2. Discovery (discovery.js): Finds the network's NAT64 prefix (RFC 7050).
+ * 3. DNS64 Resolver (dns64.js): Synthesizes IPv6 addresses from IPv4.
+ * 4. Proxy (proxy.js): HTTP/HTTPS proxy with NAT64 routing.
+ * 5. SOCKS5 (socks5.js): Optional listener for non-HTTP protocols.
  *
  * @module ipv6-bridge
  */
 
 const { createProxy } = require('./proxy');
+const { createSocksServer } = require('./socks5');
 const { needsBridge } = require('./detect');
+const { discoverAndApply } = require('./discovery');
+const config = require('./config');
+const log = require('./logger');
 
 let activeServer = null;
+let activeSocksServer = null;
+let pendingStart = null;
 
 /**
  * Start the IPv6 bridge.
  *
- * @param {number} [port=8080] - Port to listen on
+ * @param {number} [port] - Port to listen on
+ * @param {object} [options] - Startup options
+ * @param {string} [options.host] - Interface to bind to (defaults to loopback)
+ * @param {boolean} [options.force] - Start even if detection says it isn't needed
+ * @param {boolean} [options.discoverPrefix] - Run RFC 7050 prefix discovery
+ * @param {number|null} [options.socksPort] - Also start a SOCKS5 listener
  * @returns {Promise<http.Server|null>} Server instance if started, null if not needed
  * @throws {Error} If already running or startup fails
  */
-async function start(port = 8080) {
-  if (activeServer) {
-    throw new Error('IPv6 Bridge is already running');
+function start(port = config.DEFAULT_PORT, options = {}) {
+  // Assigned synchronously so concurrent callers cannot both pass the guard
+  // and leave a second, untracked server running.
+  if (activeServer || pendingStart) {
+    return Promise.reject(new Error('IPv6 Bridge is already running'));
   }
 
-  // Step 1: Detect if bridge is needed
-  const needed = await needsBridge();
-  if (!needed && !process.env.FORCE_BRIDGE) {
-    console.log('IPv6 bridge not needed — you have dual-stack or working NAT64.');
-    return null;
-  }
+  const {
+    host = config.BIND_HOST,
+    force = Boolean(process.env.FORCE_BRIDGE),
+    discoverPrefix = config.PREFIX_DISCOVERY,
+    socksPort = config.SOCKS_PORT,
+  } = options;
 
-  if (!needed) {
-    console.log('IPv6 bridge not needed, but FORCE_BRIDGE is set — starting anyway.');
-  }
+  pendingStart = (async () => {
+    const needed = await needsBridge();
 
-  // Step 2: Start the proxy server
-  activeServer = await createProxy(port);
-  return activeServer;
+    if (!needed && !force) {
+      log.info('IPv6 bridge not needed — IPv4 is reachable or NAT64 already works.');
+      return null;
+    }
+    if (!needed) {
+      log.info('IPv6 bridge not needed, but a forced start was requested.');
+    }
+
+    if (discoverPrefix) {
+      // Best effort: a network without DNS64 simply keeps the configured prefix.
+      await discoverAndApply().catch((err) => {
+        log.debug(`NAT64 prefix discovery failed: ${err.message}`);
+      });
+    }
+
+    const server = await createProxy(port, host);
+
+    if (socksPort) {
+      try {
+        activeSocksServer = await createSocksServer(socksPort, host);
+      } catch (err) {
+        await new Promise((resolve) => server.close(resolve));
+        throw err;
+      }
+    }
+
+    return server;
+  })();
+
+  return pendingStart
+    .then((server) => {
+      activeServer = server;
+      return server;
+    })
+    .finally(() => {
+      pendingStart = null;
+    });
 }
 
 /**
  * Stop the IPv6 bridge.
  *
- * @returns {Promise<void>} Resolves when the server has closed
+ * Live connections are torn down; CONNECT tunnels would otherwise keep the
+ * server open indefinitely.
+ *
+ * @returns {Promise<void>} Resolves once everything has closed
  */
-function stop() {
-  if (!activeServer) return Promise.resolve();
+async function stop() {
+  const server = activeServer;
+  const socks = activeSocksServer;
+  activeServer = null;
+  activeSocksServer = null;
 
-  return new Promise((resolve) => {
-    activeServer.close(() => {
-      activeServer = null;
-      resolve();
-    });
-  });
+  const closers = [];
+  if (server) {
+    closers.push(typeof server.closeGracefully === 'function'
+      ? server.closeGracefully()
+      : new Promise((resolve) => server.close(resolve)));
+  }
+  if (socks) {
+    closers.push(socks.closeGracefully());
+  }
+
+  await Promise.all(closers);
 }
 
 module.exports = { start, stop };

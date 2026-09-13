@@ -1,36 +1,69 @@
-# Future Roadmap & Project Vision
+# Roadmap & Project Vision
 
-While **IPv6 Bridge** currently functions as a lightweight, zero-dependency DNS64-aware HTTP proxy for local development, there are numerous opportunities to expand it into a more robust, production-grade utility.
+**IPv6 Bridge** is a zero-dependency DNS64/NAT64 bridge for hosts stranded on
+IPv6-only networks. This document tracks what has shipped and what is still
+open.
 
-The roadmap is divided into three tiers based on complexity and alignment with the core project vision.
+## Shipped in 2.0
 
-## 🟢 Tier 1: High-Priority Networking Improvements (Planned)
+These were the Tier 1 and Tier 2 items on the previous roadmap.
 
-These enhancements directly improve the performance and correctness of the proxy without adding massive architectural complexity.
+- **DNS cache** — bounded LRU with TTL expiry, so repeat requests skip resolution.
+- **Connection pooling & keep-alive** — upstream sockets are reused across requests.
+- **Connection failover** — candidates are tried in preference order (native IPv6,
+  then NAT64, then direct IPv4) instead of failing on the first unreachable address.
+- **Improved network detection** — IPv4 reachability is checked first, so the bridge
+  no longer activates on healthy dual-stack networks.
+- **Custom NAT64 prefix formats** — every RFC 6052 prefix length (`/32`, `/40`,
+  `/48`, `/56`, `/64`, `/96`), validated against the RFC's own test vectors.
+- **NAT64 prefix discovery (RFC 7050)** — the network's real prefix is discovered
+  from `ipv4only.arpa` rather than assumed.
+- **SOCKS5 support** — ssh, git, databases and any other TCP protocol.
+- **PAC (Proxy Auto-Configuration)** — served at `/proxy.pac`.
+- **Per-domain routing policies** — `IPV6_BRIDGE_BYPASS` for split routing.
+- **Authentication** — Basic credentials and a client CIDR allowlist, enforced on
+  the HTTP, CONNECT and SOCKS5 paths.
+- **Observability** — `/healthz`, `/status` and Prometheus `/metrics`, including a
+  `translationRate` that shows whether translation is actually happening.
+- **Diagnostics** — `ipv6-bridge doctor`.
 
-- **DNS Cache with TTL**: Currently, every request triggers a new DNS lookup. Implementing an in-memory LRU cache respecting DNS TTLs will drastically reduce latency and upstream DNS load.
-- **Connection Pooling & Keep-Alive**: Reusing persistent TCP sockets instead of opening and closing connections for every HTTP request to massively improve throughput.
-- **Happy Eyeballs (RFC 8305)**: Instead of waiting for AAAA resolution to fail before trying A records, race both IPv4 and IPv6 simultaneously for faster connection establishment.
-- **Improved Network Detection**: Moving beyond simple HTTP ping tests to inspect system routing tables, network interfaces, and OS-level DNS64/NAT64 presence for more robust auto-detection.
-- **Custom NAT64 Prefix Formats**: Support configurable prefix lengths (`/32`, `/40`, `/48`, `/56`, `/64`) per RFC 6052, rather than assuming `/96`.
+## Open
 
-## 🟡 Tier 2: Protocol Expansions (Under Consideration)
+### Reliability
 
-Expanding beyond a simple HTTP/HTTPS proxy to support a wider array of applications.
+- **Full Happy Eyeballs (RFC 8305)** — connection attempts are currently
+  sequential with a per-attempt timeout. True Happy Eyeballs races families with
+  a staggered delay, which lowers worst-case latency on partially broken networks.
+- **Real DNS TTLs** — the system resolver does not expose them, so the cache uses
+  a fixed TTL. Honouring real TTLs would need a resolver that reports them without
+  reintroducing the `dns.resolve*` failure mode on DoH-only hosts.
+- **Circuit breaking** — remember recently failed upstreams instead of retrying
+  every candidate on every request.
 
-- **SOCKS5 Support**: Implementing a SOCKS5 interface would allow the bridge to proxy non-HTTP protocols like SSH, FTP, SMTP, MQTT, and direct database connections (Redis, Postgres).
-- **PAC (Proxy Auto-Configuration)**: Provide a `.pac` file endpoint so operating systems can automatically route appropriate traffic through the bridge.
-- **Per-Domain Routing Policies**: Configurable bypass lists (e.g., route `*.internal.company.com` directly, but proxy everything else).
+### Protocol coverage
 
-## ⚪ Tier 3: Enterprise & Production Features (Out of Scope for v1)
+- **HTTP/2 and HTTP/3 to the origin** — upstream requests are HTTP/1.1. This needs
+  a move away from Node's core `http` module for the upstream leg.
+- **SOCKS5 UDP (`UDP ASSOCIATE`)** — would extend coverage to DNS, QUIC and
+  game traffic.
+- **WebSocket** — works today inside a CONNECT tunnel, but not for plain-HTTP
+  `Upgrade` requests, which the proxy currently strips.
 
-These features are valuable for production deployments but would significantly increase the complexity of the current lightweight developer utility.
+### Operations
 
-- **Authentication**: Basic Auth, Bearer Tokens, or IP whitelisting to secure the proxy when exposed to a LAN.
-- **Rate Limiting & Circuit Breakers**: Protecting the proxy from abuse and handling failing upstream endpoints gracefully.
-- **Observability**: Adding `/metrics`, `/health`, and `/status` endpoints for Prometheus scraping.
-- **HTTP/2 & HTTP/3**: Native support for modern HTTP multiplexing (requires significant architectural changes away from Node's core `http` module).
+- **Rate limiting** — per-client request and bandwidth caps for shared deployments.
+- **Structured JSON logging** — for log aggregation pipelines.
+- **Container image** — a published image with sensible defaults.
+
+### Reach
+
+- **Transparent interception** — the largest remaining adoption barrier is that
+  applications must be configured to use the proxy. A TUN-based mode would remove
+  that, at the cost of admin rights and platform-specific code, so it would need
+  to be an opt-in mode rather than a replacement for the user-space design.
 
 ---
 
-*Contributions are welcome! If you're interested in tackling any of these roadmap items, please check out our [CONTRIBUTING.md](CONTRIBUTING.md) and open an issue to discuss the implementation plan.*
+*Contributions are welcome! If you're interested in tackling any of these roadmap
+items, please check out our [CONTRIBUTING.md](CONTRIBUTING.md) and open an issue
+to discuss the implementation plan.*

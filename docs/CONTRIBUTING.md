@@ -37,7 +37,7 @@ docs/          Extended documentation
 
 ## Testing
 
-We use the Node.js built-in test runner (`node --test`):
+We use the Node.js built-in test runner:
 
 ```bash
 npm test
@@ -45,9 +45,37 @@ npm test
 
 When adding a new feature or fixing a bug:
 
-- Add unit tests that cover the new behavior.
-- Tests should be deterministic and not depend on network connectivity.
-- Use mocks for DNS and HTTP calls where possible.
+- Add tests that cover the new behavior.
+- Tests must be deterministic and must not depend on network connectivity.
+  Spin up a local server on an ephemeral port instead — `tests/helpers.js` has
+  helpers for HTTP and TCP servers, raw requests and module reloading.
+- Prefer a test that exercises the real path end to end over one that asserts a
+  function exists. The proxy shipped a release where every plain-HTTP request
+  returned `500` while the entire suite passed, because no test ever sent one.
+- Configuration is captured when a module loads, so a test that changes
+  environment variables must call `reloadModules()` before requiring anything.
+
+### Verifying protocol behavior
+
+The proxy is easiest to verify with a real client:
+
+```bash
+FORCE_BRIDGE=1 node src/cli.js start &
+curl -x http://127.0.0.1:8080 http://example.com/     # plain HTTP
+curl -x http://127.0.0.1:8080 https://example.com/    # CONNECT tunnel
+curl --socks5-hostname 127.0.0.1:1080 https://example.com/
+curl http://127.0.0.1:8080/status
+```
+
+Note that proxy clients send *absolute-form* request targets, which is different
+from how a normal HTTP server is addressed. Reading the code is not enough to
+confirm proxy behavior — drive it with a client.
+
+## Standards
+
+Changes to address handling should cite the relevant RFC and, where the RFC
+provides test vectors, use them. `tests/ipv6.test.js` checks the RFC 6052
+section 2.4 vectors directly.
 
 ## Reporting Issues
 

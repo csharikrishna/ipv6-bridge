@@ -10,6 +10,14 @@ const state = {
   maxLogs: 100
 };
 
+// Escape values before interpolating them into innerHTML. Hostnames and error
+// strings are user-controlled and would otherwise execute as markup.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
   addLog('Application initialized', 'info');
@@ -154,33 +162,40 @@ async function testDNS() {
     
     const result = await response.json();
     
+    const renderRecords = (records) => {
+      if (Array.isArray(records)) {
+        return records.length
+          ? escapeHtml(records.join(', ')) + '<br>'
+          : '<em>none</em><br>';
+      }
+      const message = (records && records.error) || 'Unknown error';
+      return `<span style="color: #ef4444;">Error: ${escapeHtml(message)}</span><br>`;
+    };
+
     let resultHTML = '<div class="result-box">';
-    resultHTML += `<strong>Hostname/IP:</strong> ${result.host}<br>`;
-    
+    resultHTML += `<strong>Hostname/IP:</strong> ${escapeHtml(result.host)}<br>`;
+
     if (result.isDirectAddress) {
       resultHTML += `<em>(Direct IP address, no DNS lookup needed)</em><br><br>`;
     }
-    
+
     resultHTML += `<strong>IPv4 Records:</strong><br>`;
-    
-    if (result.ipv4.error) {
-      resultHTML += `<span style="color: #ef4444;">Error: ${result.ipv4.error}</span><br>`;
-    } else if (Array.isArray(result.ipv4)) {
-      resultHTML += result.ipv4.join(', ') + '<br>';
-    } else {
-      resultHTML += `<span style="color: #ef4444;">Error: ${result.ipv4.error || 'Unknown error'}</span><br>`;
-    }
-    
+    resultHTML += renderRecords(result.ipv4);
+
     resultHTML += `<br><strong>IPv6 Records:</strong><br>`;
-    if (result.ipv6.error) {
-      resultHTML += `<span style="color: #ef4444;">Error: ${result.ipv6.error}</span><br>`;
-    } else if (Array.isArray(result.ipv6)) {
-      resultHTML += result.ipv6.join(', ') + '<br>';
-    } else {
-      resultHTML += `<span style="color: #ef4444;">Error: ${result.ipv6.error || 'Unknown error'}</span><br>`;
+    resultHTML += renderRecords(result.ipv6);
+
+    if (result.bridgeWouldUse) {
+      resultHTML += `<br><strong>Bridge would connect via:</strong><br>`;
+      if (result.bridgeWouldUse.error) {
+        resultHTML += `<span style="color: #ef4444;">Error: ${escapeHtml(result.bridgeWouldUse.error)}</span><br>`;
+      } else {
+        resultHTML += `${escapeHtml(result.bridgeWouldUse.addresses.join(', '))} `;
+        resultHTML += `<em>(${escapeHtml(result.bridgeWouldUse.mode)})</em><br>`;
+      }
     }
-    
-    resultHTML += `<br><strong>Timestamp:</strong> ${result.timestamp}`;
+
+    resultHTML += `<br><strong>Timestamp:</strong> ${escapeHtml(result.timestamp)}`;
     resultHTML += '</div>';
     
     document.getElementById('dnsResult').innerHTML = resultHTML;

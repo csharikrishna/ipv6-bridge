@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['18', '20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify the CLI runs
+        run: node src/cli.js --version
+
+      - name: Verify diagnostics run
+        run: node src/cli.js doctor
+        continue-on-error: true # network-dependent; must not gate the build
+
+      - name: Verify configuration is validated
+        shell: bash
+        run: |
+          if NAT64_PREFIX=garbage node src/cli.js start 2>&1 | grep -q 'Configuration error'; then
+            echo "invalid prefix rejected"
+          else
+            echo "invalid NAT64_PREFIX was not rejected" && exit 1
+          fi
+
+      - name: Verify the published package contents
+        run: npm pack --dry-run

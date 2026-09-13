@@ -73,24 +73,38 @@ http://[::1]:9567
 - You can click action buttons
 - Logs show your direct IPv6 access
 
-### Test 3: Access Through Bridge (IPv4→IPv6 Translation)
+### Test 3: Access Through Bridge
 
 ```bash
 # Prerequisites
-# 1. Bridge must be running on localhost:8080
-# 2. Configure your browser/system proxy to: localhost:8080
+# 1. Bridge must be running:  FORCE_BRIDGE=1 npx ipv6-bridge start
+# 2. Configure your browser/system proxy to: 127.0.0.1:8080
 
 # Then access
 http://127.0.0.1:9234
 ```
 
 **Expected Result:**
-- The bridge intercepts your IPv4 request
-- Bridge uses DNS64 to translate the address to IPv6
-- Request reaches the test server via IPv6
+- The bridge intercepts the request and routes it to the test server
+- Logs show the connection arriving through the bridge
 - Server Info shows: `IPv4` (the endpoint type, not the access method)
-- Logs show the connection came through the bridge
-- This demonstrates DNS64/NAT64 working in practice
+
+**Important:** this request is *not* NAT64-translated, and that is correct.
+`127.0.0.1` is a non-global address, and RFC 6052 section 3.1 forbids
+representing non-global IPv4 addresses with the well-known prefix — a NAT64
+gateway could not route `64:ff9b::7f00:1` anywhere useful. The bridge therefore
+connects directly over IPv4 for loopback and private targets.
+
+To confirm this is what happened, check the bridge's own counters:
+
+```bash
+curl http://127.0.0.1:8080/status
+```
+
+`routes.directIpv4` will have incremented, and `translationRate` will stay at
+`0`. Real NAT64 translation only occurs for globally routable addresses on a
+network that provides a NAT64 gateway — run `npx ipv6-bridge doctor` to find out
+whether yours does.
 
 ### Test 4: Multiple Action Buttons
 
@@ -316,15 +330,15 @@ This test server helps understand:
 
 ## See Also
 
-- [ARCHITECTURE.md](../ARCHITECTURE.md) - Deep technical details on DNS64/NAT64
+- [ARCHITECTURE.md](../docs/ARCHITECTURE.md) - Deep technical details on DNS64/NAT64
 - [README.md](../README.md) - Main project documentation
-- [DOCUMENTATION.md](../DOCUMENTATION.md) - Complete feature documentation
+- [API.md](../docs/API.md) - Complete API and configuration reference
 
 ## Support
 
 For issues with the test server or bridge:
 
-1. Check the console output of both services
-2. Verify network connectivity
-3. See DOCUMENTATION.md for troubleshooting
-4. Check ARCHITECTURE.md for technical details
+1. Run `npx ipv6-bridge doctor` from the project root
+2. Check the console output of both services
+3. See [API.md](../docs/API.md) for troubleshooting
+4. Check [ARCHITECTURE.md](../docs/ARCHITECTURE.md) for technical details

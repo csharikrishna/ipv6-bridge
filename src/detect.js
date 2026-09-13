@@ -1,77 +1,116 @@
 /**
  * IPv6 Bridge - Network Detection
  *
- * Detects whether the system is on an IPv6-only network and whether
- * the bridge is needed to reach IPv4-only servers.
+ * Decides whether the bridge is needed. The bridge only helps a host that has
+ * IPv6 but cannot reach IPv4-only servers, so detection has to establish both
+ * facts before reporting that it is needed.
  *
  * @module detect
  */
 
 const http = require('http');
 const { resolveIPv6 } = require('./dns64');
-const { IPV6_GOOGLE, IPV4_GOOGLE, DNS_TIMEOUT } = require('./config');
+const config = require('./config');
+const log = require('./logger');
+
+const {
+  IPV6_TEST_URL,
+  IPV4_TEST_URL,
+  NAT64_TEST_HOST,
+  DNS_TIMEOUT,
+} = config;
 
 /**
- * Test if the network has IPv6 connectivity.
+ * Probe a URL over a specific IP family.
  *
- * Connects to an IPv6-capable server to verify that IPv6 is available.
+ * Any 2xx or 3xx response counts as reachable; requiring exactly 200 would
+ * misreport a network as broken the moment the endpoint starts redirecting.
  *
- * @returns {Promise<boolean>} true if IPv6 is available
+ * @param {string} url - URL to request
+ * @param {number} family - IP family (4 or 6)
+ * @returns {Promise<boolean>} true if the endpoint responded
  */
-async function hasIPv6() {
+function probe(url, family) {
   return new Promise((resolve) => {
-    const req = http.get(IPV6_GOOGLE, { family: 6 }, (res) => {
-      // Consume response body to free resources
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    const req = http.get(url, { family }, (res) => {
       res.resume();
-      resolve(res.statusCode === 200);
+      finish(res.statusCode >= 200 && res.statusCode < 400);
     });
-    req.on('error', () => resolve(false));
+
+    req.on('error', () => finish(false));
     req.setTimeout(DNS_TIMEOUT, () => {
       req.destroy();
-      resolve(false);
+      finish(false);
     });
   });
 }
 
 /**
- * Determine if the bridge is needed.
+ * Test whether the network has working IPv6 connectivity.
  *
- * The bridge is needed when:
- * 1. IPv6 is available, AND
- * 2. IPv4 servers are NOT reachable via the ISP's NAT64 gateway
- *
- * @returns {Promise<boolean>} true if bridge is needed
+ * @returns {Promise<boolean>} true if IPv6 is available
  */
-async function needsBridge() {
-  const hasV6 = await hasIPv6();
-  if (!hasV6) {
-    // No IPv6 means we're on IPv4 or a broken network.
-    // Either way, the bridge can't help.
-    return false;
-  }
+function hasIPv6() {
+  return probe(IPV6_TEST_URL, 6);
+}
 
+/**
+ * Test whether the network has working IPv4 connectivity.
+ *
+ * @returns {Promise<boolean>} true if IPv4 is available
+ */
+function hasIPv4() {
+  return probe(IPV4_TEST_URL, 4);
+}
+
+/**
+ * Test whether an upstream NAT64 gateway is already translating traffic.
+ *
+ * @returns {Promise<boolean>} true if NAT64 works without the bridge
+ */
+async function hasWorkingNAT64() {
   try {
-    const ipv6 = await resolveIPv6(IPV4_GOOGLE);
-    if (!ipv6 || ipv6.length === 0) {
-      return true;
-    }
-
-    // Try connecting to the synthesized IPv6 address.
-    // If this works, the ISP has a working NAT64 gateway.
-    return new Promise((resolve) => {
-      const req = http.get(`http://[${ipv6[0]}]`, { family: 6 }, (res) => {
-        res.resume();
-        resolve(res.statusCode !== 200);
-      });
-      req.on('error', () => resolve(true));
-      req.setTimeout(DNS_TIMEOUT, () => {
-        req.destroy();
-        resolve(true);
-      });
-    });
+    const addresses = await resolveIPv6(NAT64_TEST_HOST);
+    if (!addresses || addresses.length === 0) return false;
+    return await probe(`http://[${addresses[0]}]`, 6);
   } catch {
-    return true;
+    return false;
   }
 }
 
-module.exports = { hasIPv6, needsBridge };
+/**
+ * Determine whether the bridge is needed.
+ *
+ * The bridge is needed only when IPv4 is unreachable, IPv6 works, and the
+ * network provides no NAT64 gateway of its own.
+ *
+ * @returns {Promise<boolean>} true if the bridge is needed
+ */
+async function needsBridge() {
+  if (await hasIPv4()) {
+    log.debug('IPv4 connectivity works; bridge is not needed');
+    return false;
+  }
+
+  if (!await hasIPv6()) {
+    log.debug('Neither IPv4 nor IPv6 connectivity works; the bridge cannot help');
+    return false;
+  }
+
+  if (await hasWorkingNAT64()) {
+    log.debug('Upstream NAT64 gateway is already working; bridge is not needed');
+    return false;
+  }
+
+  log.debug('IPv6-only network with no working NAT64; bridge is needed');
+  return true;
+}
+
+module.exports = { hasIPv6, hasIPv4, hasWorkingNAT64, needsBridge };
