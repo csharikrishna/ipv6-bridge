@@ -38,6 +38,51 @@ function openSocket(options, defaultPort) {
 }
 
 /**
+ * Layer TLS onto an already-connected plaintext socket, reporting success or
+ * failure through a Node-style callback.
+ *
+ * tls.connect() can throw synchronously — a caller-supplied option such as an
+ * invalid secureProtocol or cipher list fails while it builds the security
+ * context, before any socket event fires. Left uncaught, that throw would
+ * escape as an uncaught exception and crash the embedding host application on
+ * its very first request, which is a much worse outcome than the one failed
+ * connection a caught error produces.
+ *
+ * @param {net.Socket} socket - Connected plaintext socket to upgrade
+ * @param {object} tlsOptions - Options for tls.connect
+ * @param {string} hostname - Hostname to validate the certificate against
+ * @param {(err: Error|null, socket?: tls.TLSSocket) => void} callback - Result callback
+ */
+function upgradeToTls(socket, tlsOptions, hostname, callback) {
+  let secure;
+  try {
+    secure = tls.connect({
+      ...tlsOptions,
+      socket,
+      // SNI and certificate identity must use the real hostname, never the
+      // synthesized address the plaintext socket was dialled through.
+      host: hostname,
+      servername: tlsOptions.servername || hostname,
+    });
+  } catch (err) {
+    socket.destroy();
+    callback(err);
+    return;
+  }
+
+  const onError = (err) => {
+    socket.destroy();
+    callback(err);
+  };
+
+  secure.once('error', onError);
+  secure.once('secureConnect', () => {
+    secure.removeListener('error', onError);
+    callback(null, secure);
+  });
+}
+
+/**
  * HTTP agent that resolves through DNS64 and pools the resulting sockets.
  *
  * Sockets are keyed by the original hostname, so pooling is unaffected by the
@@ -84,27 +129,10 @@ class BridgeHttpsAgent extends https.Agent {
   createConnection(options, callback) {
     const hostname = options.host;
 
-    openSocket(options, 443).then((socket) => {
-      const secure = tls.connect({
-        ...this.tlsOptions,
-        ...options,
-        socket,
-        // SNI and certificate identity must use the real hostname.
-        host: hostname,
-        servername: options.servername || (tls.checkServerIdentity && hostname),
-      });
-
-      const onError = (err) => {
-        socket.destroy();
-        callback(err);
-      };
-
-      secure.once('error', onError);
-      secure.once('secureConnect', () => {
-        secure.removeListener('error', onError);
-        callback(null, secure);
-      });
-    }, (err) => callback(err));
+    openSocket(options, 443).then(
+      (socket) => upgradeToTls(socket, { ...this.tlsOptions, ...options }, hostname, callback),
+      (err) => callback(err)
+    );
   }
 }
 
@@ -145,7 +173,10 @@ function createAgents(options) {
  * Create a dns.lookup-compatible function that applies DNS64 synthesis.
  *
  * Anything accepting a `lookup` option — net.connect, http.request, most
- * client libraries — can use this without further changes.
+ * client libraries — can use this without further changes. Matches the real
+ * dns.lookup contract: `options` may be omitted, a plain object, or (per
+ * Node's documented shorthand) an integer meaning the requested address
+ * family.
  *
  * @returns {Function} Function with the dns.lookup signature
  */
@@ -154,12 +185,25 @@ function createLookup() {
     if (typeof options === 'function') {
       callback = options;
       options = {};
+    } else if (typeof options === 'number') {
+      options = { family: options };
+    } else {
+      options = options || {};
     }
 
     resolveCandidates(hostname).then((candidates) => {
       const matching = options.family
         ? candidates.filter((c) => c.family === options.family)
         : candidates;
+
+      if (options.family && matching.length === 0) {
+        const err = new Error(
+          `No family ${options.family} address available for ${hostname}`
+        );
+        err.code = 'EAI_ADDRFAMILY';
+        callback(err);
+        return;
+      }
 
       const selected = matching.length > 0 ? matching : candidates;
 
@@ -186,33 +230,20 @@ function createLookup() {
  */
 function createConnector() {
   return function bridgeConnect(options, callback) {
-    const { hostname, port, protocol, servername } = options;
+    const { hostname, port, protocol } = options;
     const isSecure = protocol === 'https:';
     const targetPort = Number(port) || (isSecure ? 443 : 80);
 
-    connectWithFallback(hostname, targetPort, { bypass: shouldBypass(hostname) })
-      .then(({ socket }) => {
-        if (!isSecure) return callback(null, socket);
-
-        const secure = tls.connect({
-          ...options,
-          socket,
-          host: hostname,
-          servername: servername || hostname,
-        });
-
-        const onError = (err) => {
-          socket.destroy();
-          callback(err);
-        };
-
-        secure.once('error', onError);
-        secure.once('secureConnect', () => {
-          secure.removeListener('error', onError);
-          callback(null, secure);
-        });
-      })
-      .catch((err) => callback(err));
+    connectWithFallback(hostname, targetPort, { bypass: shouldBypass(hostname) }).then(
+      ({ socket }) => {
+        if (!isSecure) {
+          callback(null, socket);
+          return;
+        }
+        upgradeToTls(socket, options, hostname, callback);
+      },
+      (err) => callback(err)
+    );
   };
 }
 

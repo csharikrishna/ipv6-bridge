@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-09-13
+
+A final-audit pass over 2.1.0's embeddable API, before its first npm publish,
+found one critical bug and one contract violation. Neither shipped to npm.
+
+### Fixed
+
+- **A malformed TLS option crashed the host process.** `BridgeHttpsAgent` and
+  `createConnector()` called `tls.connect()` in a way that let a synchronous
+  throw (from an invalid `secureProtocol`, cipher list, or similar) escape as
+  an uncaught exception rather than a request error — on the very first
+  request, before any application-level error handler had a chance to run.
+  Reproduced directly: a bad `secureProtocol` value took down the entire
+  process with no `error` event and no rejected promise to catch. Both now
+  route connection setup through a single guarded path that always reports
+  failure through the callback.
+- `createLookup()` silently ignored the documented `dns.lookup(hostname,
+  family, callback)` integer-shorthand form, since `(4).family` is
+  `undefined`. It now handles that form (and a `null` options argument), and
+  errors with `EAI_ADDRFAMILY` rather than silently returning a different
+  family when the requested one isn't available.
+
 ## [2.1.0] - 2026-09-13
 
 ### Added

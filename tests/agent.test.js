@@ -164,6 +164,27 @@ describe('createHttpsAgent', () => {
     }
   });
 
+  test('reports a malformed TLS option as a request error, never as an uncaught exception', async () => {
+    // tls.connect() throws synchronously while building its SecureContext for
+    // an invalid secureProtocol. Left unguarded, that throw escapes as an
+    // unhandled exception and crashes the host process on the very first
+    // request — this must surface as a normal request error instead.
+    const agent = bridge.createHttpsAgent({ secureProtocol: 'not_a_real_protocol_xyz' });
+    try {
+      await assert.rejects(
+        () => request(https, {
+          host: '127.0.0.1', port: server.address().port, path: '/', agent, ca: CA,
+        }),
+        (err) => {
+          assert.match(err.message, /Unknown method|secureProtocol/i);
+          return true;
+        }
+      );
+    } finally {
+      agent.destroy();
+    }
+  });
+
   test('rejects an untrusted certificate by default', async () => {
     const agent = bridge.createHttpsAgent();
     try {
@@ -201,6 +222,16 @@ describe('createLookup', () => {
     assert.ok([4, 6].includes(result.family));
   });
 
+  test('supports the 2-argument form (options omitted)', async () => {
+    const lookup = bridge.createLookup();
+    const result = await new Promise((resolve, reject) => {
+      lookup('localhost', (err, address, family) => {
+        if (err) reject(err); else resolve({ address, family });
+      });
+    });
+    assert.strictEqual(typeof result.address, 'string');
+  });
+
   test('supports the all option', async () => {
     const lookup = bridge.createLookup();
     const all = await new Promise((resolve, reject) => {
@@ -213,7 +244,7 @@ describe('createLookup', () => {
     assert.ok(all.every((a) => typeof a.address === 'string' && [4, 6].includes(a.family)));
   });
 
-  test('honours a requested family', async () => {
+  test('honours a requested family (object form)', async () => {
     const lookup = bridge.createLookup();
     const all = await new Promise((resolve, reject) => {
       lookup('8.8.8.8', { all: true, family: 4 }, (err, addresses) => {
@@ -221,6 +252,40 @@ describe('createLookup', () => {
       });
     });
     assert.ok(all.every((a) => a.family === 4), 'should return only IPv4 when asked');
+  });
+
+  test('honours the documented integer-shorthand form: dns.lookup(host, family, cb)', async () => {
+    // Node's dns.lookup accepts `options` as a bare integer meaning family.
+    // A previous version of this shim silently ignored that form, since
+    // `(4).family` is undefined, and returned an unfiltered result.
+    const lookup = bridge.createLookup();
+    const result = await new Promise((resolve, reject) => {
+      lookup('8.8.8.8', 4, (err, address, family) => {
+        if (err) reject(err); else resolve({ address, family });
+      });
+    });
+    assert.strictEqual(result.family, 4);
+    assert.strictEqual(result.address, '8.8.8.8');
+  });
+
+  test('errors when the integer-shorthand family cannot be satisfied', async () => {
+    const lookup = bridge.createLookup();
+    const err = await new Promise((resolve) => {
+      // 127.0.0.1 is IPv4-only and non-global, so it has no family-6 route.
+      lookup('127.0.0.1', 6, (error) => resolve(error));
+    });
+    assert.ok(err, 'requesting an unsatisfiable family should error, not silently return another family');
+    assert.strictEqual(err.code, 'EAI_ADDRFAMILY');
+  });
+
+  test('accepts null options', async () => {
+    const lookup = bridge.createLookup();
+    const result = await new Promise((resolve, reject) => {
+      lookup('localhost', null, (err, address, family) => {
+        if (err) reject(err); else resolve({ address, family });
+      });
+    });
+    assert.strictEqual(typeof result.address, 'string');
   });
 
   test('works as a drop-in for net.connect', async () => {
@@ -294,6 +359,25 @@ describe('createConnector', () => {
       connector({ hostname: '127.0.0.1', port: 1, protocol: 'http:' }, (error) => resolve(error));
     });
     assert.ok(err, 'a refused connection should produce an error');
+  });
+
+  test('reports a malformed TLS option through the callback, not as an uncaught exception', async () => {
+    const server = await startHttpsServer();
+    const connector = bridge.createConnector();
+    try {
+      const err = await new Promise((resolve) => {
+        connector({
+          hostname: '127.0.0.1',
+          port: server.address().port,
+          protocol: 'https:',
+          secureProtocol: 'not_a_real_protocol_xyz',
+        }, (error) => resolve(error));
+      });
+      assert.ok(err, 'a bad TLS option must surface as an error, not crash the process');
+      assert.match(err.message, /Unknown method|secureProtocol/i);
+    } finally {
+      await closeServer(server);
+    }
   });
 });
 

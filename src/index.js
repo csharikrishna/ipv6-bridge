@@ -15,9 +15,8 @@
 const { createProxy } = require('./proxy');
 const { createSocksServer } = require('./socks5');
 const { needsBridge } = require('./detect');
-const { discoverAndApply } = require('./discovery');
+const { discoverAndApply, discoverPrefix } = require('./discovery');
 const agent = require('./agent');
-const { discoverPrefix } = require('./discovery');
 const { dnsCache } = require('./dns64');
 const stats = require('./stats');
 const config = require('./config');

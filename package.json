@@ -1,6 +1,6 @@
 {
   "name": "ipv6-bridge",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "DNS64-aware HTTP proxy for IPv6-only networks — access IPv4 sites from IPv6-only environments",
   "type": "commonjs",
   "main": "src/index.js",
